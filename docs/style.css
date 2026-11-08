@@ -159,8 +159,11 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th { position: sticky; top: 0; background: var(--surface); font-weight: 600; font-size: 13px; cursor: pointer; user-select: none; }
-th .key { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.key { display: inline-block; width: 14px; height: 0; vertical-align: middle; margin-right: 8px; }
 td .count { color: var(--muted); font-size: 12px; margin-left: 6px; }
 tr.picked td { background: var(--accent-soft); }
 
 footer { color: var(--muted); font-size: 13px; padding-top: 32px; padding-bottom: 32px; }
+
+tr.combined td { border-top: 1px solid var(--border); }
+tr.combined td.nm { font-style: italic; }

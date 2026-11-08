@@ -32,6 +32,10 @@ OUT = ROOT / "docs" / "data"
 SHARD_LEN = 3
 SIMILAR_LIMIT = 12
 
+# Every name's count for each (place, sex, year). The site uses these to rank a
+# combined count (e.g. Eleanor + Elinor) against all other names.
+DIST = defaultdict(list)  # (place, sex, year) -> [count, ...]
+
 
 def shard_key(name):
     return name.lower()[:SHARD_LEN]
@@ -81,6 +85,7 @@ def read_national(path):
                     by_sex[sex].append((name, int(count)))
             for sex, rows in by_sex.items():
                 totals[sex][year] = sum(c for _, c in rows)
+                DIST[("US", sex, year)] = [c for _, c in rows]
                 counts = dict(rows)
                 for name, rank in rank_counts(rows).items():
                     data[(name, sex)][year] = (counts[name], rank)
@@ -108,6 +113,7 @@ def read_states(path):
             st_totals = {"F": {}, "M": {}}
             for (sex, year), rows in groups.items():
                 st_totals[sex][year] = sum(c for _, c in rows)
+                DIST[(state, sex, year)] = [c for _, c in rows]
                 counts = dict(rows)
                 for name, rank in rank_counts(rows).items():
                     data[(name, sex)][state][year] = (counts[name], rank)
@@ -138,6 +144,32 @@ def similar_names(totals_by_name):
                                        -totals_by_name[o]))
             result[name] = others[:SIMILAR_LIMIT]
     return result
+
+
+def encode_dist(counts):
+    """Counts -> [distinct counts high to low, delta-encoded], [how many names have each]."""
+    how_many = defaultdict(int)
+    for c in counts:
+        how_many[c] += 1
+    values = sorted(how_many, reverse=True)
+    deltas = [values[0]] + [values[i - 1] - values[i] for i in range(1, len(values))]
+    return [deltas, [how_many[v] for v in values]]
+
+
+def write_distributions():
+    """Two layouts of the same data, so the site loads only what it needs:
+    dist/place/<US|XX>.json  keyed "<sex><year>"   (charts over time for one place)
+    dist/year/<year>.json    keyed "<place><sex>"  (every state in one year)"""
+    by_place, by_year = defaultdict(dict), defaultdict(dict)
+    for (place, sex, year), counts in DIST.items():
+        enc = encode_dist(counts)
+        by_place[place][f"{sex}{year}"] = enc
+        by_year[year][f"{place}{sex}"] = enc
+    for sub, groups in (("place", by_place), ("year", by_year)):
+        (OUT / "dist" / sub).mkdir(parents=True)
+        for key, content in groups.items():
+            with open(OUT / "dist" / sub / f"{key}.json", "w") as f:
+                json.dump(content, f, separators=(",", ":"))
 
 
 def totals_series(year_totals):
@@ -196,6 +228,8 @@ def main():
                    for st, by_sex in st_totals.items()},
         },
     }
+    write_distributions()
+
     with open(OUT / "meta.json", "w") as f:
         json.dump(meta, f, separators=(",", ":"))
 

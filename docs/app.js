@@ -64,12 +64,79 @@ function placeSeries(entry, sex, place) {
   return place === "US" ? s.nat : s.st?.[place];
 }
 
-function valueAt(entry, sex, place, year, metric) {
-  const v = at(placeSeries(entry, sex, place), year);
+// Count distributions: how many names had each count, per place/sex/year.
+// Used to rank a combined count against every other name.
+const distFiles = new Map();  // "place/CA" or "year/2025" -> Promise<object>
+const distCache = new Map();  // "CA|F|2025" -> { vals, above }
+
+function loadDistFile(path) {
+  if (!distFiles.has(path)) {
+    const p = fetch(`data/dist/${path}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    p.then((obj) => { p.value = obj; });
+    distFiles.set(path, p);
+  }
+  return distFiles.get(path);
+}
+
+function distFor(place, sex, year) {
+  const key = `${place}|${sex}|${year}`;
+  if (distCache.has(key)) return distCache.get(key);
+  const enc = distFiles.get(`place/${place}`)?.value?.[`${sex}${year}`]
+    || distFiles.get(`year/${year}`)?.value?.[`${place}${sex}`];
+  if (!enc) return null;
+  const [deltas, howMany] = enc;
+  const vals = [], above = [];
+  let v = 0, n = 0;
+  deltas.forEach((d, i) => {
+    v = i === 0 ? d : v - d;
+    vals.push(v);
+    above.push(n);         // names with a count strictly higher than vals[i]
+    n += howMany[i];
+  });
+  const dist = { vals, above, total: n };
+  distCache.set(key, dist);
+  return dist;
+}
+
+function rankOfCount(dist, count) {
+  // vals is high to low; find the first value <= count.
+  let lo = 0, hi = dist.vals.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (dist.vals[mid] > count) lo = mid + 1;
+    else hi = mid;
+  }
+  return (lo < dist.vals.length ? dist.above[lo] : dist.total) + 1;
+}
+
+async function ensureDists(o, series) {
+  if (!series.some((s) => s.combined)) return;
+  const tableYear = parseInt($("#table-year").value, 10) || o.to;
+  const loads = ["US", ...o.states].map((p) => loadDistFile(`place/${p}`));
+  for (const y of new Set([o.to, tableYear])) loads.push(loadDistFile(`year/${y}`));
+  await Promise.all(loads);
+}
+
+// One series' count and rank at a place and year. Combined series add up their
+// members' counts and rank the total against every other name.
+function seriesAt(s, place, year) {
+  if (!s.combined) return at(placeSeries(s.entry, s.sex, place), year);
+  let count = 0;
+  for (const e of s.members) {
+    const v = at(placeSeries(e, s.sex, place), year);
+    if (v) count += v.count;
+  }
+  if (!count) return null;
+  const dist = distFor(place, s.sex, year);
+  return { count, rank: dist ? rankOfCount(dist, count) : null };
+}
+
+function seriesValue(s, place, year, metric) {
+  const v = seriesAt(s, place, year);
   if (!v) return null;
   if (metric === "rank") return v.rank;
   if (metric === "count") return v.count;
-  const total = totalAt(place, sex, year);
+  const total = totalAt(place, s.sex, year);
   return total ? (v.count / total) * 1000 : null;
 }
 
@@ -111,7 +178,23 @@ function seriesList(o) {
       });
     }
   }
-  return list.slice(0, MAX_SERIES);
+  const names = list.slice(0, MAX_SERIES);
+
+  // A dashed "combined" line per sex once at least two spellings are on the chart.
+  const combined = [];
+  for (const sex of sexes) {
+    const members = names.filter((s) => s.sex === sex).map((s) => s.entry);
+    if (members.length < 2) continue;
+    const joined = members.length <= 3
+      ? members.map((e) => e.n).join(" + ")
+      : `${members[0].n} + ${members.length - 1} spellings`;
+    combined.push({
+      key: `combined|${sex}`, combined: true, members, sex,
+      label: o.sex === "B" ? `${joined} (${SEX_WORD[sex]})` : joined,
+      color: cssVar("--text-2"),
+    });
+  }
+  return [...names, ...combined];
 }
 
 function freeUnusedColors(o) {
@@ -133,11 +216,15 @@ function fmtValue(v, metric) {
   return v < 0.1 ? v.toFixed(3) : v.toFixed(2);
 }
 
-function render() {
+let renderToken = 0;
+async function render() {
   if (!app.main) return;
+  const token = ++renderToken;
   const o = opts();
   freeUnusedColors(o);
   const series = seriesList(o);
+  await ensureDists(o, series);
+  if (token !== renderToken) return;
   $("#result-name").textContent = app.main.n;
   renderSummary(o, series);
   renderSimilar(o);
@@ -146,12 +233,12 @@ function render() {
   writeHash(o);
 }
 
-function topStates(entry, sex, year, n = 3) {
+function topStates(s, year, n = 3) {
   const rows = [];
   for (const st of app.meta.states) {
-    const v = at(placeSeries(entry, sex, st), year);
-    if (!v) continue;
-    const total = totalAt(st, sex, year);
+    const v = seriesAt(s, st, year);
+    if (!v || v.rank == null) continue;
+    const total = totalAt(st, s.sex, year);
     rows.push({ st, rank: v.rank, share: total ? v.count / total : 0 });
   }
   rows.sort((a, b) => a.rank - b.rank || b.share - a.share);
@@ -170,22 +257,21 @@ function renderSummary(o, series) {
   }
   const body = table.createTBody();
   for (const s of series) {
-    const nat = s.entry[s.sex].nat;
+    const nat = (y) => seriesAt(s, "US", y);
     const tr = body.insertRow();
+    if (s.combined) tr.className = "combined";
 
     const name = tr.insertCell();
     name.className = "nm";
-    const key = Object.assign(document.createElement("span"), { className: "key" });
-    key.style.cssText = `display:inline-block;width:12px;height:2px;vertical-align:middle;margin-right:8px;background:${s.color}`;
-    name.append(key, s.label);
+    name.append(seriesKey(s), s.label);
 
-    const now = at(nat, o.to);
+    const now = nat(o.to);
     cellWithNote(tr.insertCell(), now ? `#${fmt.format(now.rank)}` : "–",
       now ? `${fmt.format(now.count)} babies` : "under 5");
 
     let peak = null, total = 0;
     for (let y = o.from; y <= o.to; y++) {
-      const v = at(nat, y);
+      const v = nat(y);
       if (!v) continue;
       total += v.count;
       if (!peak || v.rank < peak.rank) peak = { ...v, year: y };
@@ -195,7 +281,7 @@ function renderSummary(o, series) {
 
     const top = tr.insertCell();
     top.className = "top";
-    const best = o.to >= 1910 ? topStates(s.entry, s.sex, o.to) : [];
+    const best = o.to >= 1910 ? topStates(s, o.to) : [];
     if (!best.length) top.textContent = "–";
     for (const b of best) {
       const pill = Object.assign(document.createElement("span"), { className: "pill" });
@@ -206,6 +292,14 @@ function renderSummary(o, series) {
       top.append(pill);
     }
   }
+}
+
+function seriesKey(s) {
+  // Short line in the series color; dashed for a combined series, like its chart line.
+  const key = document.createElement("span");
+  key.className = "key";
+  key.style.borderTop = `2px ${s.combined ? "dashed" : "solid"} ${s.color}`;
+  return key;
 }
 
 function cellWithNote(td, main, note) {
@@ -225,7 +319,7 @@ async function renderSimilar(o) {
   const entries = (await Promise.all(names.map(lookup))).filter(Boolean);
   if (token !== similarToken) return;
   const checked = new Set(app.extra.map((e) => e.n));
-  const atMax = seriesList(o).length >= MAX_SERIES;
+  const atMax = seriesList(o).filter((s) => !s.combined).length >= MAX_SERIES;
   ul.replaceChildren(...entries.map((e) => {
     const li = document.createElement("li");
     const label = document.createElement("label");
@@ -284,8 +378,9 @@ function renderCharts(o, series) {
     for (let y = from; y <= o.to; y++) years.push(y);
     const datasets = series.map((s) => ({
       label: s.label,
-      data: years.map((y) => valueAt(s.entry, s.sex, place, y, o.metric)),
+      data: years.map((y) => seriesValue(s, place, y, o.metric)),
       borderColor: s.color,
+      borderDash: s.combined ? [6, 4] : [],
       backgroundColor: s.color,
     }));
     if (!datasets.some((d) => d.data.some((v) => v != null))) {
@@ -408,12 +503,7 @@ function renderTable(o, series) {
   const headers = ["State", ...series.map((s) => s.label)];
   headers.forEach((text, i) => {
     const th = document.createElement("th");
-    if (i > 0) {
-      const key = document.createElement("span");
-      key.className = "key";
-      key.style.background = series[i - 1].color;
-      th.append(key);
-    }
+    if (i > 0) th.append(seriesKey(series[i - 1]));
     th.append(text + (app.sortCol === i ? (app.sortDir > 0 ? " ↑" : " ↓") : ""));
     th.addEventListener("click", () => {
       app.sortDir = app.sortCol === i ? -app.sortDir : 1;
@@ -425,7 +515,7 @@ function renderTable(o, series) {
 
   const rows = app.meta.states.map((st) => ({
     st,
-    vals: series.map((s) => at(placeSeries(s.entry, s.sex, st), year)),
+    vals: series.map((s) => seriesAt(s, st, year)),
   }));
   const col = Math.min(app.sortCol, series.length);
   rows.sort((a, b) => {
@@ -544,7 +634,7 @@ async function init() {
     $("#from").value = span === "all" ? minY : span === "1950" ? 1950 : maxY - parseInt(span, 10) + 1;
     render();
   });
-  $("#table-year").addEventListener("change", () => renderTable(opts(), seriesList(opts())));
+  $("#table-year").addEventListener("change", render);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 
   const fromHash = readHash();
