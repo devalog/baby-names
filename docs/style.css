@@ -167,3 +167,5 @@ footer { color: var(--muted); font-size: 13px; padding-top: 32px; padding-bottom
 
 tr.combined td { border-top: 1px solid var(--border); }
 tr.combined td.nm { font-style: italic; }
+.similar .list-head { margin-top: 16px; }
+.similar ul { margin-top: 6px; }

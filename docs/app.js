@@ -21,7 +21,8 @@ const app = {
   meta: null,
   shards: new Map(),     // shard key -> Promise<object>
   main: null,            // entry for the searched name
-  extra: [],             // entries checked in "Sounds like"
+  alts: [],              // entries for the searched name's other spellings
+  extra: [],             // entries checked in the sidebar
   colors: new Map(),     // series key -> color slot (stable while the search lasts)
   charts: [],
   sortCol: 0,
@@ -194,6 +195,18 @@ function seriesList(o) {
       color: cssVar("--text-2"),
     });
   }
+
+  // Always-on dotted line: the searched name plus every other spelling of it.
+  for (const sex of sexes) {
+    const members = [app.main, ...app.alts].filter((e) => e[sex]);
+    if (members.length < 2 || !app.main[sex]) continue;
+    const label = `${app.main.n} + all spellings`;
+    combined.push({
+      key: `all|${sex}`, combined: true, allSpellings: true, members, sex,
+      label: o.sex === "B" ? `${label} (${SEX_WORD[sex]})` : label,
+      color: cssVar("--muted"),
+    });
+  }
   return [...names, ...combined];
 }
 
@@ -298,7 +311,7 @@ function seriesKey(s) {
   // Short line in the series color; dashed for a combined series, like its chart line.
   const key = document.createElement("span");
   key.className = "key";
-  key.style.borderTop = `2px ${s.combined ? "dashed" : "solid"} ${s.color}`;
+  key.style.borderTop = `2px ${s.allSpellings ? "dotted" : s.combined ? "dashed" : "solid"} ${s.color}`;
   return key;
 }
 
@@ -311,15 +324,20 @@ let similarToken = 0;
 async function renderSimilar(o) {
   const ul = $("#similar");
   const token = ++similarToken;
-  const names = app.main.sim || [];
-  if (!names.length) {
-    ul.replaceChildren(Object.assign(document.createElement("li"), { className: "empty", textContent: "No sound-alike names found." }));
-    return;
-  }
-  const entries = (await Promise.all(names.map(lookup))).filter(Boolean);
+  const sims = (await Promise.all((app.main.sim || []).map(lookup))).filter(Boolean);
   if (token !== similarToken) return;
   const checked = new Set(app.extra.map((e) => e.n));
   const atMax = seriesList(o).filter((s) => !s.combined).length >= MAX_SERIES;
+  fillNameList($("#spellings"), app.alts, "No other spellings found.", checked, atMax, o);
+  fillNameList(ul, sims, "No similar names found.", checked, atMax, o);
+  $("#series-cap").hidden = !atMax;
+}
+
+function fillNameList(ul, entries, emptyText, checked, atMax, o) {
+  if (!entries.length) {
+    ul.replaceChildren(Object.assign(document.createElement("li"), { className: "empty", textContent: emptyText }));
+    return;
+  }
   ul.replaceChildren(...entries.map((e) => {
     const li = document.createElement("li");
     const label = document.createElement("label");
@@ -342,7 +360,6 @@ async function renderSimilar(o) {
     li.append(label);
     return li;
   }));
-  $("#series-cap").hidden = !atMax;
 }
 
 function latestRankText(e, o) {
@@ -380,7 +397,7 @@ function renderCharts(o, series) {
       label: s.label,
       data: years.map((y) => seriesValue(s, place, y, o.metric)),
       borderColor: s.color,
-      borderDash: s.combined ? [6, 4] : [],
+      borderDash: s.allSpellings ? [2, 3] : s.combined ? [6, 4] : [],
       backgroundColor: s.color,
     }));
     if (!datasets.some((d) => d.data.some((v) => v != null))) {
@@ -592,7 +609,9 @@ async function search(name, add = []) {
   $("#name").value = entry.n;
   app.main = entry;
   app.colors = new Map();
-  app.extra = (await Promise.all(add.filter((n) => entry.sim.includes(n)).map(lookup))).filter(Boolean);
+  app.alts = (await Promise.all((entry.alt || []).map(lookup))).filter(Boolean);
+  const known = new Set([...(entry.alt || []), ...(entry.sim || [])]);
+  app.extra = (await Promise.all(add.filter((n) => known.has(n)).map(lookup))).filter(Boolean);
   $("#results").hidden = false;
   render();
 }

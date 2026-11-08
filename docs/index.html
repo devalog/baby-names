@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Baby Name Explorer</title>
   <meta name="description" content="Look up any baby name's popularity nationally and in every state, using Social Security Administration data.">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <header class="site-header">
@@ -72,13 +72,16 @@
       <h2 id="result-name"></h2>
       <section class="panel summary">
         <div class="table-wrap"><table id="summary"></table></div>
-        <p class="hint">Top states are ranked by the name's rank in each state, with ties broken by share of births. The dashed <em>combined</em> row adds up the checked spellings and ranks the total against every other name. A spelling with fewer than 5 babies in a place that year isn't in SSA's data, so it can't be counted.</p>
+        <p class="hint">Top states are ranked by the name's rank in each state, with ties broken by share of births. The dashed row adds up the names you checked; the dotted row adds up every other spelling of the name. Both rank their total against all other names. A spelling with fewer than 5 babies in a place that year isn't in SSA's data, so it can't be counted.</p>
       </section>
 
       <div class="layout">
         <aside class="panel similar">
-          <h3>Sounds like</h3>
           <p class="hint">Check a name to add it to the charts.</p>
+          <h3 class="list-head">Other spellings</h3>
+          <p class="hint">All of these are counted in the dotted “all spellings” line.</p>
+          <ul id="spellings"></ul>
+          <h3 class="list-head">Similar names</h3>
           <ul id="similar"></ul>
           <p id="series-cap" class="hint" hidden>Charts show up to 8 lines. Uncheck one to add another.</p>
         </aside>
@@ -103,7 +106,7 @@
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
   <script data-goatcounter="https://dlog.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
 </body>

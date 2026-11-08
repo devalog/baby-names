@@ -31,6 +31,7 @@ RAW = ROOT / "raw"
 OUT = ROOT / "docs" / "data"
 SHARD_LEN = 3
 SIMILAR_LIMIT = 12
+SPELLING_LIMIT = 20
 
 # Every name's count for each (place, sex, year). The site uses these to rank a
 # combined count (e.g. Eleanor + Elinor) against all other names.
@@ -131,15 +132,56 @@ def sound_key(name):
     return key
 
 
-def similar_names(totals_by_name):
-    """For each name, other names that sound alike, closest spelling first."""
+def spelling_key(name):
+    """Rough pronunciation key, strict enough that names sharing it are spellings
+    of the same name: Caitlin = Kaitlyn = Katelyn, Zoe = Zoey, Sophia = Sofia,
+    but Ava != Eva and Sophia != Sophie."""
+    s = name.lower()
+    s = re.sub(r"^mc", "mac", s)
+    s = re.sub(r"^x", "z", s)
+    s = s.replace("ph", "f").replace("ck", "k").replace("q", "k")
+    s = re.sub(r"c(?=[eiy])", "s", s)
+    s = s.replace("c", "k")
+    s = re.sub(r"(?<!^)z", "s", s)                         # Izabella = Isabella
+    s = re.sub(r"a([^aeiouy])e(?=[^aeiou])", r"ai\1", s)   # Katelyn, Haley, Jaden
+    s = s.replace("y", "i")
+    s = re.sub(r"(ee|ie|ei|oe)$", lambda m: "oi" if m.group(1) == "oe" else "i", s)
+    s = re.sub(r"(.)\1+", r"\1", s)                         # double letters
+    s = re.sub(r"(?<=[aeiou])h$", "", s)                    # Avah, Sarah
+    s = re.sub(r"(?<=[aeiou])h(?=[^aeiou])", "", s)         # John = Jon
+    s = re.sub(r"(?<=[^aeiou])e$", "", s)                   # silent final e
+    # Keep the first and last vowel sounds; drop the unstressed ones between
+    # (Caitlin = Caitlan, Eleanor = Elinor).
+    parts = re.findall(r"[aeiou]+|[^aeiou]+", s)
+    first = next((i for i, p in enumerate(parts) if p[0] in "aeiou"), None)
+    return "".join(p for i, p in enumerate(parts)
+                   if p[0] not in "aeiou" or i in (first, len(parts) - 1))
+
+
+def other_spellings(totals_by_name):
+    """For each name, its other spellings, most common first."""
+    groups = defaultdict(list)
+    for name in totals_by_name:
+        groups[spelling_key(name)].append(name)
+    result = {}
+    for members in groups.values():
+        members.sort(key=lambda n: -totals_by_name[n])
+        for name in members:
+            result[name] = [o for o in members if o != name][:SPELLING_LIMIT]
+    return result
+
+
+def similar_names(totals_by_name, exclude):
+    """For each name, other names that sound alike, closest spelling first.
+    Leaves out names already listed as its other spellings."""
     groups = defaultdict(list)
     for name in totals_by_name:
         groups[sound_key(name)].append(name)
     result = {}
     for members in groups.values():
         for name in members:
-            others = [o for o in members if o != name]
+            skip = set(exclude.get(name, []))
+            others = [o for o in members if o != name and o not in skip]
             others.sort(key=lambda o: (jellyfish.levenshtein_distance(name.lower(), o.lower()),
                                        -totals_by_name[o]))
             result[name] = others[:SIMILAR_LIMIT]
@@ -200,9 +242,11 @@ def main():
         e.setdefault(sex, {})["st"] = {st: series(ym) for st, ym in sorted(by_state.items())}
         total_births.setdefault(name, 0)
 
-    print("Finding sound-alike names...")
-    sims = similar_names(total_births)
+    print("Finding other spellings and sound-alike names...")
+    alts = other_spellings(total_births)
+    sims = similar_names(total_births, alts)
     for name, e in entries.items():
+        e["alt"] = alts.get(name, [])
         e["sim"] = sims.get(name, [])
 
     print("Writing files...")
