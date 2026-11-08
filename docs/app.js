@@ -139,27 +139,50 @@ function render() {
   freeUnusedColors(o);
   const series = seriesList(o);
   $("#result-name").textContent = app.main.n;
-  renderTiles(o);
+  renderSummary(o, series);
   renderSimilar(o);
   renderCharts(o, series);
   renderTable(o, series);
   writeHash(o);
 }
 
-function renderTiles(o) {
-  const box = $("#tiles");
-  box.replaceChildren();
-  const sexes = (o.sex === "B" ? ["F", "M"] : [o.sex]).filter((s) => app.main[s]?.nat);
-  if (!sexes.length) {
-    box.append(tile("United States", "–", `No national records for ${o.sex === "M" ? "boys" : "girls"}`));
-    return;
+function topStates(entry, sex, year, n = 3) {
+  const rows = [];
+  for (const st of app.meta.states) {
+    const v = at(placeSeries(entry, sex, st), year);
+    if (!v) continue;
+    const total = totalAt(st, sex, year);
+    rows.push({ st, rank: v.rank, share: total ? v.count / total : 0 });
   }
-  for (const sex of sexes) {
-    const nat = app.main[sex].nat;
-    const suffix = sexes.length > 1 || o.sex === "B" ? ` · ${SEX_WORD[sex]}` : "";
+  rows.sort((a, b) => a.rank - b.rank || b.share - a.share);
+  return rows.slice(0, n);
+}
+
+function renderSummary(o, series) {
+  const table = $("#summary");
+  table.replaceChildren();
+  const head = table.createTHead().insertRow();
+  for (const text of ["Name", `US rank ${o.to}`, `Best US rank ${o.from}–${o.to}`,
+                      `US babies ${o.from}–${o.to}`, `Top states ${o.to}`]) {
+    const th = document.createElement("th");
+    th.textContent = text;
+    head.append(th);
+  }
+  const body = table.createTBody();
+  for (const s of series) {
+    const nat = s.entry[s.sex].nat;
+    const tr = body.insertRow();
+
+    const name = tr.insertCell();
+    name.className = "nm";
+    const key = Object.assign(document.createElement("span"), { className: "key" });
+    key.style.cssText = `display:inline-block;width:12px;height:2px;vertical-align:middle;margin-right:8px;background:${s.color}`;
+    name.append(key, s.label);
+
     const now = at(nat, o.to);
-    box.append(tile(`Rank in ${o.to}${suffix}`, now ? `#${fmt.format(now.rank)}` : "–",
-      now ? `${fmt.format(now.count)} babies` : "Fewer than 5 babies"));
+    cellWithNote(tr.insertCell(), now ? `#${fmt.format(now.rank)}` : "–",
+      now ? `${fmt.format(now.count)} babies` : "under 5");
+
     let peak = null, total = 0;
     for (let y = o.from; y <= o.to; y++) {
       const v = at(nat, y);
@@ -167,22 +190,27 @@ function renderTiles(o) {
       total += v.count;
       if (!peak || v.rank < peak.rank) peak = { ...v, year: y };
     }
-    box.append(tile(`Best rank${suffix}`, peak ? `#${fmt.format(peak.rank)}` : "–",
-      peak ? `in ${peak.year}` : `none ${o.from}–${o.to}`));
-    box.append(tile(`Babies ${o.from}–${o.to}${suffix}`, fmt.format(total), "United States"));
+    cellWithNote(tr.insertCell(), peak ? `#${fmt.format(peak.rank)}` : "–", peak ? `in ${peak.year}` : "");
+    cellWithNote(tr.insertCell(), fmt.format(total), "");
+
+    const top = tr.insertCell();
+    top.className = "top";
+    const best = o.to >= 1910 ? topStates(s.entry, s.sex, o.to) : [];
+    if (!best.length) top.textContent = "–";
+    for (const b of best) {
+      const pill = Object.assign(document.createElement("span"), { className: "pill" });
+      pill.title = STATE_NAMES[b.st];
+      pill.append(b.st + " ");
+      const r = Object.assign(document.createElement("span"), { className: "count", textContent: `#${fmt.format(b.rank)}` });
+      pill.append(r);
+      top.append(pill);
+    }
   }
 }
 
-function tile(label, value, note) {
-  const d = document.createElement("div");
-  d.className = "tile";
-  for (const [cls, text] of [["label", label], ["value", value], ["note", note]]) {
-    const s = document.createElement("div");
-    s.className = cls;
-    s.textContent = text;
-    d.append(s);
-  }
-  return d;
+function cellWithNote(td, main, note) {
+  td.append(Object.assign(document.createElement("span"), { className: "big", textContent: main }));
+  if (note) td.append(Object.assign(document.createElement("span"), { className: "count", textContent: note }));
 }
 
 let similarToken = 0;

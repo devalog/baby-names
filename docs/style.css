@@ -125,12 +125,15 @@ legend { font-weight: 600; font-size: 13px; margin-bottom: 6px; padding: 0; }
 
 .status { color: var(--text-2); min-height: 1.5em; margin: 12px 0; }
 
-.results-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.tiles { display: flex; flex-wrap: wrap; gap: 12px; }
-.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
-.tile .label { font-size: 12px; color: var(--text-2); }
-.tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile .note { font-size: 12px; color: var(--muted); }
+#result-name { margin-bottom: 12px; }
+.summary { margin-bottom: 16px; padding-top: 8px; }
+.summary .table-wrap { margin-top: 0; max-height: none; }
+.summary th { cursor: default; }
+.summary td.nm { font-weight: 600; }
+.summary td .big { font-weight: 600; }
+.summary td.top { text-align: left; }
+.summary th:last-child { text-align: left; }
+.summary .pill { display: inline-block; margin-right: 10px; }
 
 .layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
