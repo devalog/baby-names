@@ -319,13 +319,19 @@ function makeChart(canvas, years, datasets, metric) {
           border: { color: grid },
         },
         y: {
+          // Log scale for rank so #1 vs #12 is as visible as #1,000 vs #12,000.
+          type: metric === "rank" ? "logarithmic" : "linear",
           reverse: metric === "rank",
           beginAtZero: metric !== "rank",
           min: metric === "rank" ? 1 : undefined,
           ticks: {
             color: text2,
             precision: metric === "per1k" ? undefined : 0,
-            callback: (v) => (metric === "rank" ? `#${fmt.format(v)}` : fmt.format(v)),
+            callback: (v) => {
+              if (metric !== "rank") return fmt.format(v);
+              const lead = v / 10 ** Math.floor(Math.log10(v));
+              return [1, 2, 5].some((d) => Math.abs(lead - d) < 1e-9) ? `#${fmt.format(v)}` : null;
+            },
           },
           grid: { color: grid },
           border: { display: false },
