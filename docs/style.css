@@ -1,47 +1,47 @@
 :root {
   color-scheme: light;
-  --bg: #f6f4ef;
-  --surface: #fcfcfb;
-  --border: #e3e0d8;
-  --text: #0b0b0b;
-  --text-2: #52514e;
-  --muted: #7a7873;
+  --bg: #fcf0f3;
+  --surface: #fffafb;
+  --border: #f0dce2;
+  --text: #333333;
+  --text-2: #5c5357;
+  --muted: #8a7e83;
   --accent: #2a78d6;
   --accent-ink: #ffffff;
-  --accent-soft: #e4eefb;
-  --grid: #ebe8e1;
+  --accent-soft: #f7dbe4;
+  --grid: #f4e5ea;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
   --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #121211;
-    --surface: #1a1a19;
-    --border: #2f2f2c;
+    --bg: #171214;
+    --surface: #1f191b;
+    --border: #372c30;
     --text: #f0efec;
     --text-2: #c3c2b7;
     --muted: #8f8e86;
     --accent: #3987e5;
     --accent-ink: #ffffff;
-    --accent-soft: #1d2b3d;
-    --grid: #272725;
+    --accent-soft: #3a2630;
+    --grid: #2b2326;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
     --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #121211;
-  --surface: #1a1a19;
-  --border: #2f2f2c;
+  --bg: #171214;
+  --surface: #1f191b;
+  --border: #372c30;
   --text: #f0efec;
   --text-2: #c3c2b7;
   --muted: #8f8e86;
   --accent: #3987e5;
   --accent-ink: #ffffff;
-  --accent-soft: #1d2b3d;
-  --grid: #272725;
+  --accent-soft: #3a2630;
+  --grid: #2b2326;
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
   --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
 }
@@ -51,11 +51,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 Inter, system-ui, sans-serif;
+  font: 15px/1.5 Helvetica, Arial, sans-serif;
 }
 main, .site-header, footer { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 .site-header { padding-top: 32px; padding-bottom: 8px; }
-h1, h2 { font-family: Fraunces, Georgia, serif; font-weight: 600; margin: 0; }
+h1, h2 { font-weight: normal; margin: 0; letter-spacing: -0.01em; }
 h1 { font-size: 32px; }
 h2 { font-size: 36px; }
 h3 { font-size: 15px; margin: 0 0 4px; }
