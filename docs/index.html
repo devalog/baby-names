@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baby Name Explorer</title>
+  <meta name="description" content="Look up any baby name's popularity nationally and in every state, using Social Security Administration data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Baby Name Explorer</h1>
+    <p class="sub">Popularity by year and by state, from Social Security card applications.</p>
+  </header>
+
+  <main>
+    <form id="search" class="panel" autocomplete="off">
+      <div class="search-row">
+        <label for="name" class="sr-only">Name</label>
+        <input id="name" name="name" type="search" placeholder="Type a name, like Eleanor" required>
+        <button type="submit" class="primary">Look up</button>
+      </div>
+
+      <div class="options">
+        <fieldset>
+          <legend>Sex</legend>
+          <div class="seg">
+            <label><input type="radio" name="sex" value="F"><span>Girls</span></label>
+            <label><input type="radio" name="sex" value="M"><span>Boys</span></label>
+            <label><input type="radio" name="sex" value="B" checked><span>Both</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Show</legend>
+          <div class="seg">
+            <label><input type="radio" name="metric" value="rank" checked><span>Rank</span></label>
+            <label><input type="radio" name="metric" value="count"><span>Births</span></label>
+            <label><input type="radio" name="metric" value="per1k"><span>Per 1,000 births</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Years</legend>
+          <div class="years">
+            <input id="from" type="number" inputmode="numeric" aria-label="From year">
+            <span>to</span>
+            <input id="to" type="number" inputmode="numeric" aria-label="To year">
+          </div>
+          <div class="chips" id="year-presets">
+            <button type="button" data-span="all">All</button>
+            <button type="button" data-span="1950">Since 1950</button>
+            <button type="button" data-span="25">Last 25 yrs</button>
+            <button type="button" data-span="10">Last 10 yrs</button>
+          </div>
+        </fieldset>
+      </div>
+
+      <fieldset class="places">
+        <legend>Places <span class="hint">State data starts in 1910</span></legend>
+        <div class="places-top">
+          <label class="check"><input type="checkbox" id="nat" checked> United States</label>
+          <button type="button" class="link" id="clear-states">Clear states</button>
+        </div>
+        <div class="state-grid" id="states"></div>
+      </fieldset>
+    </form>
+
+    <p id="status" class="status" role="status"></p>
+
+    <section id="results" hidden>
+      <div class="results-head">
+        <h2 id="result-name"></h2>
+        <div id="tiles" class="tiles"></div>
+      </div>
+
+      <div class="layout">
+        <aside class="panel similar">
+          <h3>Sounds like</h3>
+          <p class="hint">Check a name to add it to the charts.</p>
+          <ul id="similar"></ul>
+          <p id="series-cap" class="hint" hidden>Charts show up to 8 lines. Uncheck one to add another.</p>
+        </aside>
+
+        <div class="charts" id="charts"></div>
+      </div>
+
+      <section class="panel state-table">
+        <div class="table-head">
+          <h3>Rank in every state</h3>
+          <label>Year <select id="table-year"></select></label>
+        </div>
+        <p class="hint">A dash means fewer than 5 babies got the name in that state that year, so SSA doesn't report it. Tied names share a rank.</p>
+        <div class="table-wrap"><table id="state-table"></table></div>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    Data: <a href="https://www.ssa.gov/oact/babynames/limits.html">Social Security Administration</a>.
+    Ranks are worked out from SSA's published counts, so state ranks cover every name with at least 5 births, not just the top 100.
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

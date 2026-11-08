@@ -1,0 +1,524 @@
+"use strict";
+
+const STATE_NAMES = {
+  AK: "Alaska", AL: "Alabama", AR: "Arkansas", AZ: "Arizona", CA: "California", CO: "Colorado",
+  CT: "Connecticut", DC: "District of Columbia", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", IA: "Iowa", ID: "Idaho", IL: "Illinois", IN: "Indiana", KS: "Kansas",
+  KY: "Kentucky", LA: "Louisiana", MA: "Massachusetts", MD: "Maryland", ME: "Maine",
+  MI: "Michigan", MN: "Minnesota", MO: "Missouri", MS: "Mississippi", MT: "Montana",
+  NC: "North Carolina", ND: "North Dakota", NE: "Nebraska", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NV: "Nevada", NY: "New York", OH: "Ohio", OK: "Oklahoma", OR: "Oregon",
+  PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota",
+  TN: "Tennessee", TX: "Texas", UT: "Utah", VA: "Virginia", VT: "Vermont", WA: "Washington",
+  WI: "Wisconsin", WV: "West Virginia", WY: "Wyoming",
+};
+const SEX_WORD = { F: "girls", M: "boys" };
+const MAX_SERIES = 8;
+const METRIC_LABEL = { rank: "Rank", count: "Births", per1k: "Per 1,000 births" };
+
+const $ = (sel) => document.querySelector(sel);
+const app = {
+  meta: null,
+  shards: new Map(),     // shard key -> Promise<object>
+  main: null,            // entry for the searched name
+  extra: [],             // entries checked in "Sounds like"
+  colors: new Map(),     // series key -> color slot (stable while the search lasts)
+  charts: [],
+  sortCol: 0,
+  sortDir: 1,
+};
+
+// ---------- data ----------
+
+function loadShard(name) {
+  const key = name.toLowerCase().slice(0, app.meta.shardLen);
+  if (!app.shards.has(key)) {
+    app.shards.set(key, fetch(`data/names/${encodeURIComponent(key)}.json`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({})));
+  }
+  return app.shards.get(key);
+}
+
+async function lookup(name) {
+  const shard = await loadShard(name);
+  return shard[name.toLowerCase()] || null;
+}
+
+function at(series, year) {
+  if (!series) return null;
+  const i = year - series.y0;
+  if (i < 0 || i >= series.c.length || !series.c[i]) return null;
+  return { count: series.c[i], rank: series.r[i] };
+}
+
+function totalAt(place, sex, year) {
+  const t = place === "US" ? app.meta.totals.nat[sex] : app.meta.totals.st[place]?.[sex];
+  if (!t) return null;
+  return t.t[year - t.y0] || null;
+}
+
+function placeSeries(entry, sex, place) {
+  const s = entry[sex];
+  if (!s) return null;
+  return place === "US" ? s.nat : s.st?.[place];
+}
+
+function valueAt(entry, sex, place, year, metric) {
+  const v = at(placeSeries(entry, sex, place), year);
+  if (!v) return null;
+  if (metric === "rank") return v.rank;
+  if (metric === "count") return v.count;
+  const total = totalAt(place, sex, year);
+  return total ? (v.count / total) * 1000 : null;
+}
+
+// ---------- options ----------
+
+function opts() {
+  const [minY, maxY] = app.meta.years;
+  let from = clamp(parseInt($("#from").value, 10) || minY, minY, maxY);
+  let to = clamp(parseInt($("#to").value, 10) || maxY, minY, maxY);
+  if (from > to) [from, to] = [to, from];
+  return {
+    sex: document.querySelector("input[name=sex]:checked").value,
+    metric: document.querySelector("input[name=metric]:checked").value,
+    from, to,
+    nat: $("#nat").checked,
+    states: [...document.querySelectorAll("#states input:checked")].map((i) => i.value),
+  };
+}
+
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+
+function seriesList(o) {
+  const sexes = o.sex === "B" ? ["F", "M"] : [o.sex];
+  const list = [];
+  for (const entry of [app.main, ...app.extra]) {
+    for (const sex of sexes) {
+      if (!entry[sex]) continue;
+      const key = `${entry.n}|${sex}`;
+      if (!app.colors.has(key)) {
+        const used = new Set(app.colors.values());
+        const free = [1, 2, 3, 4, 5, 6, 7, 8].find((s) => !used.has(s));
+        if (!free) continue;
+        app.colors.set(key, free);
+      }
+      list.push({
+        key, entry, sex,
+        label: o.sex === "B" ? `${entry.n} (${SEX_WORD[sex]})` : entry.n,
+        color: cssVar(`--s${app.colors.get(key)}`),
+      });
+    }
+  }
+  return list.slice(0, MAX_SERIES);
+}
+
+function freeUnusedColors(o) {
+  // Release colors for names that were unchecked, so new picks can reuse them.
+  const live = new Set();
+  for (const e of [app.main, ...app.extra]) for (const s of ["F", "M"]) live.add(`${e.n}|${s}`);
+  for (const k of [...app.colors.keys()]) if (!live.has(k)) app.colors.delete(k);
+}
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------- rendering ----------
+
+const fmt = new Intl.NumberFormat("en-US");
+function fmtValue(v, metric) {
+  if (v == null) return "–";
+  if (metric === "rank") return `#${fmt.format(v)}`;
+  if (metric === "count") return fmt.format(v);
+  return v < 0.1 ? v.toFixed(3) : v.toFixed(2);
+}
+
+function render() {
+  if (!app.main) return;
+  const o = opts();
+  freeUnusedColors(o);
+  const series = seriesList(o);
+  $("#result-name").textContent = app.main.n;
+  renderTiles(o);
+  renderSimilar(o);
+  renderCharts(o, series);
+  renderTable(o, series);
+  writeHash(o);
+}
+
+function renderTiles(o) {
+  const box = $("#tiles");
+  box.replaceChildren();
+  const sexes = (o.sex === "B" ? ["F", "M"] : [o.sex]).filter((s) => app.main[s]?.nat);
+  if (!sexes.length) {
+    box.append(tile("United States", "–", `No national records for ${o.sex === "M" ? "boys" : "girls"}`));
+    return;
+  }
+  for (const sex of sexes) {
+    const nat = app.main[sex].nat;
+    const suffix = sexes.length > 1 || o.sex === "B" ? ` · ${SEX_WORD[sex]}` : "";
+    const now = at(nat, o.to);
+    box.append(tile(`Rank in ${o.to}${suffix}`, now ? `#${fmt.format(now.rank)}` : "–",
+      now ? `${fmt.format(now.count)} babies` : "Fewer than 5 babies"));
+    let peak = null, total = 0;
+    for (let y = o.from; y <= o.to; y++) {
+      const v = at(nat, y);
+      if (!v) continue;
+      total += v.count;
+      if (!peak || v.rank < peak.rank) peak = { ...v, year: y };
+    }
+    box.append(tile(`Best rank${suffix}`, peak ? `#${fmt.format(peak.rank)}` : "–",
+      peak ? `in ${peak.year}` : `none ${o.from}–${o.to}`));
+    box.append(tile(`Babies ${o.from}–${o.to}${suffix}`, fmt.format(total), "United States"));
+  }
+}
+
+function tile(label, value, note) {
+  const d = document.createElement("div");
+  d.className = "tile";
+  for (const [cls, text] of [["label", label], ["value", value], ["note", note]]) {
+    const s = document.createElement("div");
+    s.className = cls;
+    s.textContent = text;
+    d.append(s);
+  }
+  return d;
+}
+
+let similarToken = 0;
+async function renderSimilar(o) {
+  const ul = $("#similar");
+  const token = ++similarToken;
+  const names = app.main.sim || [];
+  if (!names.length) {
+    ul.replaceChildren(Object.assign(document.createElement("li"), { className: "empty", textContent: "No sound-alike names found." }));
+    return;
+  }
+  const entries = (await Promise.all(names.map(lookup))).filter(Boolean);
+  if (token !== similarToken) return;
+  const checked = new Set(app.extra.map((e) => e.n));
+  const atMax = seriesList(o).length >= MAX_SERIES;
+  ul.replaceChildren(...entries.map((e) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = checked.has(e.n);
+    box.disabled = !box.checked && atMax;
+    box.addEventListener("change", () => {
+      if (box.checked) app.extra.push(e);
+      else app.extra = app.extra.filter((x) => x.n !== e.n);
+      render();
+    });
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    const slot = app.colors.get(`${e.n}|F`) || app.colors.get(`${e.n}|M`);
+    if (box.checked && slot) sw.style.background = cssVar(`--s${slot}`);
+    const nm = Object.assign(document.createElement("span"), { className: "nm", textContent: e.n });
+    const rk = Object.assign(document.createElement("span"), { className: "rk", textContent: latestRankText(e, o) });
+    label.append(box, sw, nm, rk);
+    li.append(label);
+    return li;
+  }));
+  $("#series-cap").hidden = !atMax;
+}
+
+function latestRankText(e, o) {
+  const sexes = o.sex === "B" ? ["F", "M"] : [o.sex];
+  const parts = [];
+  for (const s of sexes) {
+    const v = at(e[s]?.nat, o.to);
+    if (v) parts.push(`#${fmt.format(v.rank)}${o.sex === "B" ? " " + s : ""}`);
+  }
+  return parts.join(" · ") || "–";
+}
+
+function renderCharts(o, series) {
+  for (const c of app.charts) c.destroy();
+  app.charts = [];
+  const box = $("#charts");
+  box.replaceChildren();
+  const places = [...(o.nat ? ["US"] : []), ...o.states];
+  if (!places.length) {
+    box.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Pick United States or a state above to see charts." }));
+    return;
+  }
+  for (const place of places) {
+    const card = document.createElement("div");
+    card.className = "chart-card";
+    const h = document.createElement("h3");
+    h.textContent = `${place === "US" ? "United States" : STATE_NAMES[place] || place} · ${METRIC_LABEL[o.metric]}`;
+    card.append(h);
+    box.append(card);
+
+    const from = place === "US" ? o.from : Math.max(o.from, 1910);
+    const years = [];
+    for (let y = from; y <= o.to; y++) years.push(y);
+    const datasets = series.map((s) => ({
+      label: s.label,
+      data: years.map((y) => valueAt(s.entry, s.sex, place, y, o.metric)),
+      borderColor: s.color,
+      backgroundColor: s.color,
+    }));
+    if (!datasets.some((d) => d.data.some((v) => v != null))) {
+      card.append(Object.assign(document.createElement("p"), { className: "none",
+        textContent: `No records here for ${from}–${o.to}. SSA only lists a name once at least 5 babies get it in a year.` }));
+      continue;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "canvas-wrap";
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `${h.textContent} for ${series.map((s) => s.label).join(", ")}`);
+    wrap.append(canvas);
+    card.append(wrap);
+    app.charts.push(makeChart(canvas, years, datasets, o.metric));
+  }
+}
+
+const crosshair = {
+  id: "crosshair",
+  afterDatasetsDraw(chart) {
+    const active = chart.tooltip?.getActiveElements?.() || [];
+    if (!active.length) return;
+    const x = active[0].element.x;
+    const { top, bottom } = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = cssVar("--muted");
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+function makeChart(canvas, years, datasets, metric) {
+  const text2 = cssVar("--text-2");
+  const grid = cssVar("--grid");
+  return new Chart(canvas, {
+    type: "line",
+    data: { labels: years, datasets },
+    plugins: [crosshair],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      spanGaps: false,
+      interaction: { mode: "index", intersect: false },
+      elements: {
+        line: { borderWidth: 2, tension: 0 },
+        point: { radius: 0, hoverRadius: 4, hitRadius: 12 },
+      },
+      scales: {
+        x: {
+          ticks: { color: text2, maxTicksLimit: 8, maxRotation: 0 },
+          grid: { display: false },
+          border: { color: grid },
+        },
+        y: {
+          reverse: metric === "rank",
+          beginAtZero: metric !== "rank",
+          min: metric === "rank" ? 1 : undefined,
+          ticks: {
+            color: text2,
+            precision: metric === "per1k" ? undefined : 0,
+            callback: (v) => (metric === "rank" ? `#${fmt.format(v)}` : fmt.format(v)),
+          },
+          grid: { color: grid },
+          border: { display: false },
+        },
+      },
+      plugins: {
+        legend: {
+          display: datasets.length > 1,
+          position: "bottom",
+          labels: { color: text2, usePointStyle: true, pointStyle: "line", boxWidth: 18 },
+        },
+        tooltip: {
+          backgroundColor: cssVar("--surface"),
+          titleColor: cssVar("--text"),
+          bodyColor: cssVar("--text"),
+          borderColor: cssVar("--border"),
+          borderWidth: 1,
+          padding: 10,
+          usePointStyle: true,
+          callbacks: {
+            label: (ctx) => ` ${fmtValue(ctx.raw, metric)}  ${ctx.dataset.label}`,
+            labelPointStyle: () => ({ pointStyle: "line", rotation: 0 }),
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderTable(o, series) {
+  const sel = $("#table-year");
+  const first = Math.max(o.from, 1910);
+  const current = parseInt(sel.value, 10);
+  sel.replaceChildren();
+  for (let y = o.to; y >= first; y--) sel.append(new Option(y, y));
+  sel.value = current >= first && current <= o.to ? current : o.to;
+  const year = parseInt(sel.value, 10);
+
+  const table = $("#state-table");
+  table.replaceChildren();
+  if (o.to < 1910) {
+    table.append(Object.assign(document.createElement("caption"), { textContent: "State data starts in 1910." }));
+    return;
+  }
+  const thead = table.createTHead().insertRow();
+  const headers = ["State", ...series.map((s) => s.label)];
+  headers.forEach((text, i) => {
+    const th = document.createElement("th");
+    if (i > 0) {
+      const key = document.createElement("span");
+      key.className = "key";
+      key.style.background = series[i - 1].color;
+      th.append(key);
+    }
+    th.append(text + (app.sortCol === i ? (app.sortDir > 0 ? " ↑" : " ↓") : ""));
+    th.addEventListener("click", () => {
+      app.sortDir = app.sortCol === i ? -app.sortDir : 1;
+      app.sortCol = i;
+      renderTable(opts(), seriesList(opts()));
+    });
+    thead.append(th);
+  });
+
+  const rows = app.meta.states.map((st) => ({
+    st,
+    vals: series.map((s) => at(placeSeries(s.entry, s.sex, st), year)),
+  }));
+  const col = Math.min(app.sortCol, series.length);
+  rows.sort((a, b) => {
+    if (col === 0) return a.st.localeCompare(b.st) * app.sortDir;
+    const ra = a.vals[col - 1]?.rank, rb = b.vals[col - 1]?.rank;
+    if (ra == null && rb == null) return a.st.localeCompare(b.st);
+    if (ra == null) return 1;
+    if (rb == null) return -1;
+    return (ra - rb) * app.sortDir;
+  });
+
+  const tbody = table.createTBody();
+  const picked = new Set(o.states);
+  for (const r of rows) {
+    const tr = tbody.insertRow();
+    if (picked.has(r.st)) tr.className = "picked";
+    tr.insertCell().textContent = STATE_NAMES[r.st] || r.st;
+    for (const v of r.vals) {
+      const td = tr.insertCell();
+      if (!v) { td.textContent = "–"; continue; }
+      td.append(`#${fmt.format(v.rank)}`);
+      const c = document.createElement("span");
+      c.className = "count";
+      c.textContent = `${fmt.format(v.count)} babies`;
+      td.append(c);
+    }
+  }
+}
+
+// ---------- URL ----------
+
+function writeHash(o) {
+  const p = new URLSearchParams();
+  p.set("name", app.main.n);
+  p.set("sex", o.sex);
+  p.set("show", o.metric);
+  p.set("from", o.from);
+  p.set("to", o.to);
+  if (!o.nat) p.set("us", "0");
+  if (o.states.length) p.set("states", o.states.join(","));
+  if (app.extra.length) p.set("add", app.extra.map((e) => e.n).join(","));
+  history.replaceState(null, "", "#" + p.toString());
+}
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const setRadio = (name, v) => {
+    const el = document.querySelector(`input[name=${name}][value="${v}"]`);
+    if (el) el.checked = true;
+  };
+  if (p.get("sex")) setRadio("sex", p.get("sex"));
+  if (p.get("show")) setRadio("metric", p.get("show"));
+  if (p.get("from")) $("#from").value = p.get("from");
+  if (p.get("to")) $("#to").value = p.get("to");
+  $("#nat").checked = p.get("us") !== "0";
+  const states = new Set((p.get("states") || "").split(",").filter(Boolean));
+  for (const i of document.querySelectorAll("#states input")) i.checked = states.has(i.value);
+  return { name: p.get("name"), add: (p.get("add") || "").split(",").filter(Boolean) };
+}
+
+// ---------- search ----------
+
+async function search(name, add = []) {
+  name = name.trim();
+  if (!name) return;
+  $("#status").textContent = "Looking up…";
+  const entry = await lookup(name);
+  if (!entry) {
+    $("#status").textContent = `No records for “${name}”. SSA only lists names given to at least 5 babies in a year, so very rare names won't show up.`;
+    $("#results").hidden = true;
+    return;
+  }
+  $("#status").textContent = "";
+  $("#name").value = entry.n;
+  app.main = entry;
+  app.colors = new Map();
+  app.extra = (await Promise.all(add.filter((n) => entry.sim.includes(n)).map(lookup))).filter(Boolean);
+  $("#results").hidden = false;
+  render();
+}
+
+// ---------- setup ----------
+
+async function init() {
+  app.meta = await fetch("data/meta.json").then((r) => r.json());
+  const [minY, maxY] = app.meta.years;
+  for (const id of ["#from", "#to"]) Object.assign($(id), { min: minY, max: maxY });
+  $("#from").value = minY;
+  $("#to").value = maxY;
+
+  $("#states").replaceChildren(...app.meta.states.map((st) => {
+    const label = document.createElement("label");
+    label.title = STATE_NAMES[st] || st;
+    const input = Object.assign(document.createElement("input"), { type: "checkbox", value: st });
+    input.setAttribute("aria-label", STATE_NAMES[st] || st);
+    const span = Object.assign(document.createElement("span"), { textContent: st });
+    label.append(input, span);
+    return label;
+  }));
+
+  $("#search").addEventListener("submit", (e) => {
+    e.preventDefault();
+    search($("#name").value);
+  });
+  $("#search").addEventListener("change", (e) => {
+    if (e.target.id !== "name") render();
+  });
+  $("#clear-states").addEventListener("click", () => {
+    for (const i of document.querySelectorAll("#states input")) i.checked = false;
+    render();
+  });
+  $("#year-presets").addEventListener("click", (e) => {
+    const span = e.target.dataset?.span;
+    if (!span) return;
+    $("#to").value = maxY;
+    $("#from").value = span === "all" ? minY : span === "1950" ? 1950 : maxY - parseInt(span, 10) + 1;
+    render();
+  });
+  $("#table-year").addEventListener("change", () => renderTable(opts(), seriesList(opts())));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+
+  const fromHash = readHash();
+  if (fromHash.name) search(fromHash.name, fromHash.add);
+  else $("#name").focus();
+}
+
+init().catch((err) => {
+  $("#status").textContent = "Couldn't load the name data. Try reloading the page.";
+  console.error(err);
+});
