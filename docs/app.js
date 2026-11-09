@@ -14,7 +14,7 @@ const STATE_NAMES = {
 };
 const SEX_WORD = { F: "girls", M: "boys" };
 const MAX_SERIES = 8;
-const LIST_PREVIEW = 6;
+const LIST_PREVIEW = 3;
 const METRIC_LABEL = { rank: "Rank", count: "Births", per1k: "Per 1,000 births" };
 
 const $ = (sel) => document.querySelector(sel);
