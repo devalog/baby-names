@@ -170,3 +170,40 @@ tr.combined td.nm { font-style: italic; }
 .similar .list-head { margin-top: 16px; }
 .similar ul { margin-top: 6px; }
 main { padding-bottom: 48px; }
+
+/* Map: one sequential hue, darker = more popular. Dark mode flips so popular = brighter. */
+:root {
+  --m1: #0d366b; --m2: #184f95; --m3: #256abf; --m4: #3987e5;
+  --m5: #6da7ec; --m6: #9ec5f4; --m7: #cde2fb; --m-none: #efdfe4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --m1: #cde2fb; --m2: #9ec5f4; --m3: #6da7ec; --m4: #3987e5;
+    --m5: #256abf; --m6: #184f95; --m7: #104281; --m-none: #2b2326;
+  }
+}
+:root[data-theme="dark"] {
+  --m1: #cde2fb; --m2: #9ec5f4; --m3: #6da7ec; --m4: #3987e5;
+  --m5: #256abf; --m6: #184f95; --m7: #104281; --m-none: #2b2326;
+}
+.map-panel { margin-top: 16px; }
+.map-stage { position: relative; margin: 12px auto 0; max-width: 760px; }
+#map { width: 100%; height: auto; display: block; }
+#map path { stroke: var(--surface); stroke-width: 1; cursor: default; }
+#map path:hover, #map path.hover { stroke: var(--text); stroke-width: 1.5; }
+.map-year { font-size: 32px; min-width: 3.2em; color: var(--text); font-variant-numeric: tabular-nums; }
+.map-tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+}
+.map-tip strong { display: block; font-size: 15px; }
+.map-tip .count { margin-left: 0; display: block; }
+.map-controls { max-width: 760px; margin-left: auto; margin-right: auto; display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.map-controls button { padding: 8px 18px; min-width: 84px; }
+.map-controls input { flex: 1; accent-color: var(--accent); }
+.map-legend { max-width: 760px; margin-left: auto; margin-right: auto; justify-content: center; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12px; color: var(--text-2); }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.similar li .link { margin: 4px 0 0 22px; font-size: 13px; }

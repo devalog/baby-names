@@ -14,6 +14,7 @@ const STATE_NAMES = {
 };
 const SEX_WORD = { F: "girls", M: "boys" };
 const MAX_SERIES = 8;
+const LIST_PREVIEW = 6;
 const METRIC_LABEL = { rank: "Rank", count: "Births", per1k: "Per 1,000 births" };
 
 const $ = (sel) => document.querySelector(sel);
@@ -23,6 +24,7 @@ const app = {
   main: null,            // entry for the searched name
   alts: [],              // entries for the searched name's other spellings
   extra: [],             // entries checked in the sidebar
+  expanded: new Set(),   // sidebar lists showing every name
   colors: new Map(),     // series key -> color slot (stable while the search lasts)
   charts: [],
   sortCol: 0,
@@ -243,6 +245,7 @@ async function render() {
   renderSimilar(o);
   renderCharts(o, series);
   renderTable(o, series);
+  renderMap(o, series);
   writeHash(o);
 }
 
@@ -338,7 +341,12 @@ function fillNameList(ul, entries, emptyText, checked, atMax, o) {
     ul.replaceChildren(Object.assign(document.createElement("li"), { className: "empty", textContent: emptyText }));
     return;
   }
-  ul.replaceChildren(...entries.map((e) => {
+  // Long lists show the first few (plus anything checked) until "Show all" is clicked.
+  const expanded = app.expanded.has(ul.id);
+  const shown = expanded || entries.length <= LIST_PREVIEW
+    ? entries
+    : entries.filter((e, i) => i < LIST_PREVIEW || checked.has(e.n));
+  const items = shown.map((e) => {
     const li = document.createElement("li");
     const label = document.createElement("label");
     const box = document.createElement("input");
@@ -359,7 +367,22 @@ function fillNameList(ul, entries, emptyText, checked, atMax, o) {
     label.append(box, sw, nm, rk);
     li.append(label);
     return li;
-  }));
+  });
+  if (entries.length > LIST_PREVIEW) {
+    const li = document.createElement("li");
+    const more = Object.assign(document.createElement("button"), {
+      type: "button", className: "link",
+      textContent: expanded ? "Show fewer" : `Show all ${entries.length}`,
+    });
+    more.addEventListener("click", () => {
+      if (expanded) app.expanded.delete(ul.id);
+      else app.expanded.add(ul.id);
+      fillNameList(ul, entries, emptyText, checked, atMax, o);
+    });
+    li.append(more);
+    items.push(li);
+  }
+  ul.replaceChildren(...items);
 }
 
 function latestRankText(e, o) {
@@ -562,6 +585,142 @@ function renderTable(o, series) {
   }
 }
 
+// ---------- map ----------
+
+const MAP_BINS = [
+  [10, "#1–10"], [25, "11–25"], [50, "26–50"], [100, "51–100"],
+  [250, "101–250"], [1000, "251–1,000"], [Infinity, "Over 1,000"],
+];
+const MAP_MS_PER_YEAR = 180;
+const map = { paths: {}, series: null, year: null, start: 1910, end: 2025, timer: null, hover: null, token: 0 };
+
+function binColor(rank) {
+  if (rank == null) return "var(--m-none)";
+  const i = MAP_BINS.findIndex(([max]) => rank <= max);
+  return `var(--m${i + 1})`;
+}
+
+async function setupMap() {
+  const geo = await fetch("data/us-states.json").then((r) => r.json());
+  const svg = $("#map");
+  const ns = "http://www.w3.org/2000/svg";
+  for (const [st, d] of Object.entries(geo.states)) {
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", d);
+    p.dataset.st = st;
+    p.addEventListener("pointermove", (e) => { map.hover = st; showMapTip(e); });
+    p.addEventListener("pointerleave", () => { map.hover = null; $("#map-tip").hidden = true; });
+    svg.append(p);
+    map.paths[st] = p;
+  }
+
+  const legend = $("#map-legend");
+  const item = (color, text) => {
+    const span = document.createElement("span");
+    const sw = document.createElement("i");
+    sw.style.background = color;
+    span.append(sw, text);
+    return span;
+  };
+  legend.replaceChildren(
+    ...MAP_BINS.map(([, text], i) => item(`var(--m${i + 1})`, text)),
+    item("var(--m-none)", "Under 5 babies"),
+  );
+
+  $("#map-play").addEventListener("click", () => (map.timer ? stopMap() : playMap()));
+  $("#map-slider").addEventListener("input", (e) => {
+    stopMap();
+    map.year = parseInt(e.target.value, 10);
+    paintMap();
+  });
+  $("#map-series").addEventListener("change", () => { stopMap(); render(); });
+}
+
+async function renderMap(o, series) {
+  const token = ++map.token;
+  const sel = $("#map-series");
+  const previous = sel.value;
+  sel.replaceChildren(...series.map((s) => new Option(s.label, s.key)));
+  sel.value = series.some((s) => s.key === previous) ? previous : series[0]?.key || "";
+  map.series = series.find((s) => s.key === sel.value) || null;
+
+  map.start = Math.max(o.from, 1910);
+  map.end = o.to;
+  const slider = $("#map-slider");
+  slider.min = map.start;
+  slider.max = map.end;
+  if (map.year == null || map.year < map.start || map.year > map.end) map.year = map.end;
+
+  if (map.end < 1910 || !map.series) {
+    stopMap();
+    $("#map-year").textContent = "";
+    for (const p of Object.values(map.paths)) p.style.fill = "var(--m-none)";
+    return;
+  }
+  if (map.series.combined) {
+    // Ranking a combined count needs every state's full count list for every year.
+    $("#map-year").textContent = "Loading…";
+    await Promise.all(app.meta.states.map((st) => loadDistFile(`place/${st}`)));
+    if (token !== map.token) return;
+  }
+  paintMap();
+}
+
+function paintMap() {
+  const s = map.series;
+  if (!s) return;
+  for (const [st, p] of Object.entries(map.paths)) {
+    p.style.fill = binColor(seriesAt(s, st, map.year)?.rank);
+  }
+  $("#map-year").textContent = map.year;
+  $("#map-slider").value = map.year;
+  $("#map").setAttribute("aria-label", `Map of ${s.label}'s rank in each state in ${map.year}`);
+  if (map.hover) updateMapTip();
+}
+
+function playMap() {
+  if (map.year >= map.end) map.year = map.start;
+  $("#map-play").textContent = "Pause";
+  paintMap();
+  map.timer = setInterval(() => {
+    if (map.year >= map.end) return stopMap();
+    map.year += 1;
+    paintMap();
+  }, MAP_MS_PER_YEAR);
+}
+
+function stopMap() {
+  clearInterval(map.timer);
+  map.timer = null;
+  $("#map-play").textContent = "Play";
+}
+
+function showMapTip(e) {
+  const tip = $("#map-tip");
+  const stage = $(".map-stage").getBoundingClientRect();
+  updateMapTip();
+  tip.hidden = false;
+  const x = e.clientX - stage.left, y = e.clientY - stage.top;
+  const flip = x > stage.width - tip.offsetWidth - 24;
+  tip.style.left = `${flip ? x - tip.offsetWidth - 12 : x + 12}px`;
+  tip.style.top = `${Math.max(0, y - tip.offsetHeight - 8)}px`;
+}
+
+function updateMapTip() {
+  const tip = $("#map-tip");
+  const st = map.hover;
+  const v = map.series ? seriesAt(map.series, st, map.year) : null;
+  const name = Object.assign(document.createElement("strong"), {
+    textContent: v ? `#${fmt.format(v.rank)}` : "Under 5 babies",
+  });
+  const place = document.createElement("span");
+  place.textContent = `${STATE_NAMES[st] || st}, ${map.year}`;
+  const count = Object.assign(document.createElement("span"), {
+    className: "count", textContent: v ? `${fmt.format(v.count)} babies` : "",
+  });
+  tip.replaceChildren(name, place, count);
+}
+
 // ---------- URL ----------
 
 function writeHash(o) {
@@ -609,6 +768,10 @@ async function search(name, add = []) {
   $("#name").value = entry.n;
   app.main = entry;
   app.colors = new Map();
+  stopMap();
+  map.year = null;
+  app.expanded.clear();
+  $("#map-series").replaceChildren();  // new search: the map starts on the searched name
   app.alts = (await Promise.all((entry.alt || []).map(lookup))).filter(Boolean);
   const known = new Set([...(entry.alt || []), ...(entry.sim || [])]);
   app.extra = (await Promise.all(add.filter((n) => known.has(n)).map(lookup))).filter(Boolean);
@@ -655,6 +818,7 @@ async function init() {
   });
   $("#table-year").addEventListener("change", render);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+  await setupMap();
 
   const fromHash = readHash();
   if (fromHash.name) search(fromHash.name, fromHash.add);
