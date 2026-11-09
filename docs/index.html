@@ -6,7 +6,7 @@
   <title>Baby Name Explorer</title>
   <meta name="description" content="Look up any baby name's popularity nationally and in every state, using Social Security Administration data.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👶</text></svg>">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <header class="site-header">
@@ -105,7 +105,7 @@
           <input id="map-slider" type="range" aria-label="Year">
         </div>
         <div id="map-legend" class="map-legend"></div>
-        <p class="hint">Darker means more popular. Ranks are within each state, so a small state can rank a name highly with fewer babies.</p>
+        <p class="hint">Darker means more popular, on a log scale so the top ranks spread out. Ranks are within each state, so a small state can rank a name highly with fewer babies.</p>
       </section>
 
       <section class="panel state-table">
@@ -121,7 +121,7 @@
 
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=12"></script>
   <script data-goatcounter="https://dlog.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
 </body>

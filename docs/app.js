@@ -587,17 +587,30 @@ function renderTable(o, series) {
 
 // ---------- map ----------
 
-const MAP_BINS = [
-  [10, "#1–10"], [25, "11–25"], [50, "26–50"], [100, "51–100"],
-  [250, "101–250"], [1000, "251–1,000"], [Infinity, "Over 1,000"],
-];
-const MAP_MS_PER_YEAR = 180;
-const map = { paths: {}, series: null, year: null, start: 1910, end: 2025, timer: null, hover: null, token: 0 };
+// Continuous color: rank on a log scale from #1 (darkest) to MAP_MAX_RANK and beyond (lightest).
+const MAP_MAX_RANK = 1000;
+const MAP_TICKS = [1, 10, 100];
+const MAP_MS_PER_YEAR = 80;
+const map = { paths: {}, series: null, year: null, start: 1910, end: 2025, timer: null, hover: null, token: 0, stops: [] };
 
-function binColor(rank) {
+const rankPos = (rank) => Math.min(1, Math.log10(Math.max(rank, 1)) / Math.log10(MAP_MAX_RANK));
+
+function readMapStops() {
+  // The ramp lives in CSS (--m1 dark ... --m7 light, flipped in dark mode).
+  map.stops = [1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const hex = cssVar(`--m${i}`).replace("#", "");
+    return [0, 2, 4].map((j) => parseInt(hex.slice(j, j + 2), 16));
+  });
+}
+
+function rankColor(rank) {
   if (rank == null) return "var(--m-none)";
-  const i = MAP_BINS.findIndex(([max]) => rank <= max);
-  return `var(--m${i + 1})`;
+  const stops = map.stops;
+  const pos = rankPos(rank) * (stops.length - 1);
+  const i = Math.min(Math.floor(pos), stops.length - 2);
+  const f = pos - i;
+  const [r, g, b] = stops[i].map((c, k) => Math.round(c + (stops[i + 1][k] - c) * f));
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 async function setupMap() {
@@ -614,18 +627,29 @@ async function setupMap() {
     map.paths[st] = p;
   }
 
-  const legend = $("#map-legend");
-  const item = (color, text) => {
-    const span = document.createElement("span");
-    const sw = document.createElement("i");
-    sw.style.background = color;
-    span.append(sw, text);
-    return span;
-  };
-  legend.replaceChildren(
-    ...MAP_BINS.map(([, text], i) => item(`var(--m${i + 1})`, text)),
-    item("var(--m-none)", "Under 5 babies"),
-  );
+  // Legend: the gradient bar with rank ticks at their log positions, plus the no-data swatch.
+  const scale = document.createElement("div");
+  scale.className = "map-scale";
+  const bar = document.createElement("div");
+  bar.className = "map-bar";
+  const ticks = document.createElement("div");
+  ticks.className = "map-ticks";
+  for (const t of MAP_TICKS) {
+    const s = document.createElement("span");
+    s.style.left = `${rankPos(t) * 100}%`;
+    s.textContent = `#${fmt.format(t)}`;
+    ticks.append(s);
+  }
+  const end = Object.assign(document.createElement("span"), { textContent: `#${fmt.format(MAP_MAX_RANK)}+` });
+  end.style.left = "100%";
+  ticks.append(end);
+  scale.append(bar, ticks);
+  const none = document.createElement("span");
+  none.className = "map-none";
+  const sw = document.createElement("i");
+  sw.style.background = "var(--m-none)";
+  none.append(sw, "Under 5 babies");
+  $("#map-legend").replaceChildren(scale, none);
 
   $("#map-play").addEventListener("click", () => (map.timer ? stopMap() : playMap()));
   $("#map-slider").addEventListener("input", (e) => {
@@ -643,6 +667,7 @@ async function renderMap(o, series) {
   sel.replaceChildren(...series.map((s) => new Option(s.label, s.key)));
   sel.value = series.some((s) => s.key === previous) ? previous : series[0]?.key || "";
   map.series = series.find((s) => s.key === sel.value) || null;
+  readMapStops();
 
   map.start = Math.max(o.from, 1910);
   map.end = o.to;
@@ -670,7 +695,7 @@ function paintMap() {
   const s = map.series;
   if (!s) return;
   for (const [st, p] of Object.entries(map.paths)) {
-    p.style.fill = binColor(seriesAt(s, st, map.year)?.rank);
+    p.style.fill = rankColor(seriesAt(s, st, map.year)?.rank);
   }
   $("#map-year").textContent = map.year;
   $("#map-slider").value = map.year;

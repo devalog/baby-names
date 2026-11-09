@@ -189,7 +189,7 @@ main { padding-bottom: 48px; }
 .map-panel { margin-top: 16px; }
 .map-stage { position: relative; margin: 12px auto 0; max-width: 760px; }
 #map { width: 100%; height: auto; display: block; }
-#map path { stroke: var(--surface); stroke-width: 1; cursor: default; }
+#map path { stroke: var(--surface); stroke-width: 1; cursor: default; transition: fill 80ms linear; }
 #map path:hover, #map path.hover { stroke: var(--text); stroke-width: 1.5; }
 .map-year { font-size: 32px; min-width: 3.2em; color: var(--text); font-variant-numeric: tabular-nums; }
 .map-tip {
@@ -204,6 +204,16 @@ main { padding-bottom: 48px; }
 .map-controls button { padding: 8px 18px; min-width: 84px; }
 .map-controls input { flex: 1; accent-color: var(--accent); }
 .map-legend { max-width: 760px; margin-left: auto; margin-right: auto; justify-content: center; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12px; color: var(--text-2); }
-.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.map-legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.map-legend { align-items: flex-start; gap: 12px 24px; }
+.map-scale { flex: 1; min-width: 220px; max-width: 420px; }
+.map-bar {
+  height: 12px; border-radius: 3px;
+  background: linear-gradient(to right, var(--m1), var(--m2), var(--m3), var(--m4), var(--m5), var(--m6), var(--m7));
+}
+.map-ticks { position: relative; height: 18px; margin-top: 4px; }
+.map-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.map-ticks span:first-child { transform: none; }
+.map-ticks span:last-child { transform: translateX(-100%); }
+.map-none { display: inline-flex; align-items: center; gap: 6px; }
+.map-none i { width: 14px; height: 12px; border-radius: 3px; display: inline-block; }
 .similar li .link { margin: 4px 0 0 22px; font-size: 13px; }
