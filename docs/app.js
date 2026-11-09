@@ -56,6 +56,10 @@ function at(series, year) {
 }
 
 function totalAt(place, sex, year) {
+  if (sex === "B") {
+    const f = totalAt(place, "F", year), m = totalAt(place, "M", year);
+    return f || m ? (f || 0) + (m || 0) : null;
+  }
   const t = place === "US" ? app.meta.totals.nat[sex] : app.meta.totals.st[place]?.[sex];
   if (!t) return null;
   return t.t[year - t.y0] || null;
@@ -126,8 +130,10 @@ function seriesAt(s, place, year) {
   if (!s.combined) return at(placeSeries(s.entry, s.sex, place), year);
   let count = 0;
   for (const e of s.members) {
-    const v = at(placeSeries(e, s.sex, place), year);
-    if (v) count += v.count;
+    for (const sex of s.memberSexes || [s.sex]) {
+      const v = at(placeSeries(e, sex, place), year);
+      if (v) count += v.count;
+    }
   }
   if (!count) return null;
   const dist = distFor(place, s.sex, year);
@@ -207,6 +213,15 @@ function seriesList(o) {
       key: `all|${sex}`, combined: true, allSpellings: true, members, sex,
       label: o.sex === "B" ? `${label} (${SEX_WORD[sex]})` : label,
       color: cssVar("--muted"),
+    });
+  }
+  // With "Both" selected: the searched name's girls + boys total, ranked against all names.
+  if (o.sex === "B" && app.main.F && app.main.M) {
+    combined.unshift({
+      key: "both", combined: true, bothSexes: true, members: [app.main],
+      memberSexes: ["F", "M"], sex: "B",
+      label: `${app.main.n} (girls + boys)`,
+      color: cssVar("--text"),
     });
   }
   return [...names, ...combined];
@@ -310,11 +325,17 @@ function renderSummary(o, series) {
   }
 }
 
+function lineStyle(s) {
+  if (s.allSpellings) return "dotted";
+  if (s.combined && !s.bothSexes) return "dashed";
+  return "solid";
+}
+
 function seriesKey(s) {
   // Short line in the series color; dashed for a combined series, like its chart line.
   const key = document.createElement("span");
   key.className = "key";
-  key.style.borderTop = `2px ${s.allSpellings ? "dotted" : s.combined ? "dashed" : "solid"} ${s.color}`;
+  key.style.borderTop = `2px ${lineStyle(s)} ${s.color}`;
   return key;
 }
 
@@ -363,7 +384,8 @@ function fillNameList(ul, entries, emptyText, checked, atMax, o) {
     const slot = app.colors.get(`${e.n}|F`) || app.colors.get(`${e.n}|M`);
     if (box.checked && slot) sw.style.background = cssVar(`--s${slot}`);
     const nm = Object.assign(document.createElement("span"), { className: "nm", textContent: e.n });
-    const rk = Object.assign(document.createElement("span"), { className: "rk", textContent: latestRankText(e, o) });
+    const rk = Object.assign(document.createElement("span"), { className: "rk" });
+    rk.append(...latestRankText(e, o).map((t) => Object.assign(document.createElement("span"), { textContent: t })));
     label.append(box, sw, nm, rk);
     li.append(label);
     return li;
@@ -392,7 +414,7 @@ function latestRankText(e, o) {
     const v = at(e[s]?.nat, o.to);
     if (v) parts.push(`#${fmt.format(v.rank)}${o.sex === "B" ? " " + s : ""}`);
   }
-  return parts.join(" · ") || "–";
+  return parts.length ? parts : ["–"];
 }
 
 function renderCharts(o, series) {
@@ -420,7 +442,7 @@ function renderCharts(o, series) {
       label: s.label,
       data: years.map((y) => seriesValue(s, place, y, o.metric)),
       borderColor: s.color,
-      borderDash: s.allSpellings ? [2, 3] : s.combined ? [6, 4] : [],
+      borderDash: { dotted: [2, 3], dashed: [6, 4], solid: [] }[lineStyle(s)],
       backgroundColor: s.color,
     }));
     if (!datasets.some((d) => d.data.some((v) => v != null))) {
@@ -591,7 +613,7 @@ function renderTable(o, series) {
 const MAP_MAX_RANK = 1000;
 const MAP_TICKS = [1, 10, 100];
 const MAP_MS_PER_YEAR = 80;
-const map = { paths: {}, series: null, year: null, start: 1910, end: 2025, timer: null, hover: null, token: 0, stops: [] };
+const map = { picked: null, paths: {}, series: null, year: null, start: 1910, end: 2025, timer: null, hover: null, token: 0, stops: [] };
 
 const rankPos = (rank) => Math.min(1, Math.log10(Math.max(rank, 1)) / Math.log10(MAP_MAX_RANK));
 
@@ -657,15 +679,16 @@ async function setupMap() {
     map.year = parseInt(e.target.value, 10);
     paintMap();
   });
-  $("#map-series").addEventListener("change", () => { stopMap(); render(); });
+  $("#map-series").addEventListener("change", (e) => { map.picked = e.target.value; stopMap(); render(); });
 }
 
 async function renderMap(o, series) {
   const token = ++map.token;
   const sel = $("#map-series");
-  const previous = sel.value;
   sel.replaceChildren(...series.map((s) => new Option(s.label, s.key)));
-  sel.value = series.some((s) => s.key === previous) ? previous : series[0]?.key || "";
+  // Default follows the Sex choice (girls + boys for "Both"); a pick from the dropdown sticks.
+  const fallback = (o.sex === "B" && series.find((s) => s.bothSexes)) || series[0];
+  sel.value = series.some((s) => s.key === map.picked) ? map.picked : fallback?.key || "";
   map.series = series.find((s) => s.key === sel.value) || null;
   readMapStops();
 
@@ -795,6 +818,7 @@ async function search(name, add = []) {
   app.colors = new Map();
   stopMap();
   map.year = null;
+  map.picked = null;
   app.expanded.clear();
   $("#map-series").replaceChildren();  // new search: the map starts on the searched name
   app.alts = (await Promise.all((entry.alt || []).map(lookup))).filter(Boolean);

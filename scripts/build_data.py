@@ -35,7 +35,7 @@ SPELLING_LIMIT = 20
 
 # Every name's count for each (place, sex, year). The site uses these to rank a
 # combined count (e.g. Eleanor + Elinor) against all other names.
-DIST = defaultdict(list)  # (place, sex, year) -> [count, ...]
+DIST = defaultdict(list)  # (place, sex or "B" for both, year) -> [count, ...]
 
 
 def shard_key(name):
@@ -66,6 +66,15 @@ def series(year_map):
     return {"y0": y0, "c": counts, "r": ranks}
 
 
+def sex_blind(row_lists):
+    """Each name's girls + boys count, so a name can be ranked regardless of sex."""
+    total = defaultdict(int)
+    for rows in row_lists:
+        for name, count in rows:
+            total[name] += count
+    return list(total.values())
+
+
 def read_national(path):
     """Returns {(name, sex): {year: (count, rank)}} and {sex: {year: total}}."""
     data = defaultdict(dict)
@@ -84,6 +93,7 @@ def read_national(path):
                         continue
                     name, sex, count = line.split(",")
                     by_sex[sex].append((name, int(count)))
+            DIST[("US", "B", year)] = sex_blind(by_sex.values())
             for sex, rows in by_sex.items():
                 totals[sex][year] = sum(c for _, c in rows)
                 DIST[("US", sex, year)] = [c for _, c in rows]
@@ -112,6 +122,11 @@ def read_states(path):
                     _, sex, year, name, count = line.split(",")
                     groups[(sex, int(year))].append((name, int(count)))
             st_totals = {"F": {}, "M": {}}
+            by_year = defaultdict(list)
+            for (sex, year), rows in groups.items():
+                by_year[year].append(rows)
+            for year, row_lists in by_year.items():
+                DIST[(state, "B", year)] = sex_blind(row_lists)
             for (sex, year), rows in groups.items():
                 st_totals[sex][year] = sum(c for _, c in rows)
                 DIST[(state, sex, year)] = [c for _, c in rows]
@@ -250,8 +265,9 @@ def main():
         e["sim"] = sims.get(name, [])
 
     print("Writing files...")
-    if OUT.exists():
-        shutil.rmtree(OUT)
+    # Clear only what this script writes; docs/data/us-states.json comes from make_map.mjs.
+    for sub in ("names", "dist"):
+        shutil.rmtree(OUT / sub, ignore_errors=True)
     (OUT / "names").mkdir(parents=True)
 
     shards = defaultdict(dict)
